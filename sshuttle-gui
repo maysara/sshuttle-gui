@@ -1,0 +1,83 @@
+#!/bin/bash
+
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2, or (at your option)
+# any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
+# 02111-1307, USA.
+
+# TODO:
+# clean up the code
+# add feature to locate alternative sshuttle from gui
+# 
+#
+
+. ~/.sshuttle-gui/.conf
+if [ `id -u` -ne 0 ]
+then
+	#gksudo ./$0
+#	exit;
+	true
+fi 
+
+if [ x$1 == x-d ]
+then
+	debug=true;
+else
+	debug=false
+fi
+
+
+if  [ -d ~/.sshuttle-gui/profiles/  ] && zenity --question --text "Load existing profile?" 
+then
+	 #ls -Q -1 ~/.sshuttle-gui/ | sed 's/\(.*\)$/\1 \1/g' | zenity --list --radiolist --text "Pick Profile" --column Profiles 
+	pushd . && cd ~/.sshuttle-gui/profiles/ && profile=$(zenity --file-selection) && popd 
+	params=$(cat $profile)
+else
+	# getting input from user for session
+	server=$(zenity --entry --text "server name") && \
+	user=$(zenity --entry --text "user name" --entry-text $(whoami)) && \
+	port=$(zenity --entry --text "port number (default is 22)" --entry-text 22) && \
+	opts=$(zenity --list --checklist --hide-header --hide-column=2 --print-column=2 --text "Additional options" --column use --column prm --column option FALSE auto-hosts "scan for remote hostnames and update local /etc/hosts" FALSE dns "capture local DNS requests and forward to the remote DNS server (newer versions of sshuttle only)")
+	if [ x$opts != x ]
+	then
+		opts=--$(echo $opts | sed 's/|/ --/')
+	fi
+	echo $opts
+	zenity --question --text "Automatically determine subnets to route? " && network="--auto-nets" || network=$(zenity --entry --text "network (network/subnet)" --entry-text 192.168.1.0/24)
+	#nameresolve=$(zenity --list --radiolist --text "Would you like to handle name resolution?" --column method --column description dns dns "hosts files" "host files")
+	params="$user@$server:$port $network $opts"
+	zenity --question --text "save this profile?" && profile=$(zenity --entry --text "profile name")
+	# if profile is to be saved, check if directory where profiles are to be saved exist
+	# if not then create it and save files in it!
+	if [ x"$profile" != x ]
+	then
+		[ -d ~/.sshuttle-gui/profiles/ ] || mkdir -p ~/.sshuttle-gui/profiles/
+		echo $params > ~/.sshuttle-gui/profiles/$profile
+	fi
+
+fi 
+if [ $debug ]
+then
+	params="$params --syslog"
+fi
+
+ORIG_HOME=$HOME
+exec gksudo -- sh -c "
+. $ORIG_HOME/.sshuttle-gui/.conf
+sshuttle -r $params 2>&1 > /tmp/sshuttle-gui.log
+"
+if [ $? ]
+then
+	cat /tmp/sshuttle-gui.log |zenity --error --text -
+fi
+
